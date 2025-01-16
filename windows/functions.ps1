@@ -1,11 +1,11 @@
 # This function just gets some basic information about a machine over WMI/CIM
-function Get-BiosInfo ($hostname) {
+function Get-BiosInfo ($ComputerName) {
     ## Gather BIOS information
-    try { $BiosInfo = Get-CimInstance -ClassName Win32_BIOS -ComputerName $Hostname }
+    try { $BiosInfo = Get-CimInstance -ClassName Win32_BIOS -ComputerName $ComputerName }
     catch { throw "Unable to get BIOS information"}
-    try { $ModelInfo = Get-CimInstance -ClassName Win32_ComputerSystem -ComputerName $hostname}
+    try { $ModelInfo = Get-CimInstance -ClassName Win32_ComputerSystem -ComputerName $ComputerName}
     catch { throw "Unable to get BIOS information"}
-    try { $OSInfo = Get-CimInstance -ClassName Win32_OperatingSystem -ComputerName $hostname}
+    try { $OSInfo = Get-CimInstance -ClassName Win32_OperatingSystem -ComputerName $ComputerName}
     catch { throw "Unable to get BIOS information"}
     switch ($BiosInfo.Manufacturer) {
         { ($_ -ieq "HP") -or ($_ -ieq "HPE") } {
@@ -29,12 +29,12 @@ function Get-BiosInfo ($hostname) {
             Manufacturer = $ModelInfo.Manufacturer
             Memory = $ModelInfo.TotalPhysicalMemory/1GB
             OperatingSystem = $OSInfo.Caption
-            HyperV = (Get-WindowsFeature -ComputerName $hostname -Name hyper-v).Installed
+            HyperV = (Get-WindowsFeature -ComputerName $ComputerName -Name hyper-v).Installed
         }
     }
-    catch {throw "Unable to get information from remote PC: $hostname"}
+    catch {throw "Unable to get information from remote PC: $ComputerName"}
 }
-function Get-WindowsNetworkAdapters ($hostname) {
+function Get-WindowsNetworkAdapters ($ComputerName) {
 <#
     This function pics one of the addresses that windows doesn't have marked as "Skip as source" to call the primary IP of the nic.
     For IPv4, we use the lowest numbered nic. For IPv6 we use the IP address with the shortest lifetime, as it's likely to be the one
@@ -42,13 +42,13 @@ function Get-WindowsNetworkAdapters ($hostname) {
     of this function shouldn't use anything except the list of static addresses for the NIC when documenting a machine.
 #>
     try {
-        [array]$NicInfo = (Get-CimInstance -ClassName Win32_NetworkAdapter -ComputerName $hostname -ErrorAction Stop|Where-Object {$_.AdapterType})
-        [array]$NicConfigInfo = (Get-CimInstance -ClassName Win32_NetworkAdapterConfiguration -ComputerName $hostname -ErrorAction Stop)
+        [array]$NicInfo = (Get-CimInstance -ClassName Win32_NetworkAdapter -ComputerName $ComputerName -ErrorAction Stop|Where-Object {$_.AdapterType})
+        [array]$NicConfigInfo = (Get-CimInstance -ClassName Win32_NetworkAdapterConfiguration -ComputerName $ComputerName -ErrorAction Stop)
     }
-    catch {throw "Unable to get information from remote PC: $hostname"}
+    catch {throw "Unable to get information from remote PC: $ComputerName"}
     $Output=Foreach ($item in $NicInfo) {
         $nicPhysical=if($item.Name -eq 'Microsoft Network Adapter Multiplexor Driver'){$false} else {$item.PhysicalAdapter}
-        $IPs=Get-NetIPConfiguration -ComputerName $hostname
+        $IPs=Get-NetIPConfiguration -ComputerName $ComputerName
         [array]$IPv4Sources=($IPs.IPv4Address|Where-Object {$_.SkipAsSource -eq $false -and $_.ifIndex -eq $item.InterfaceIndex})|sort-object -Property IPAddress
         [array]$IPv6Sources=($IPs.IPv6Address|Where-Object {$_.SkipAsSource -eq $false -and $_.ifIndex -eq $item.InterfaceIndex})|sort-object -Property ValidLifetime
         if($IPv4Sources){$primary4="$($IPv4Sources[0].IPAddress)/$($IPv4Sources[0].PrefixLength)"}
