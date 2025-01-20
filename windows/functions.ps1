@@ -2,11 +2,11 @@
 function Get-BiosInfo ($ComputerName) {
     ## Gather BIOS information
     try { $BiosInfo = Get-CimInstance -ClassName Win32_BIOS -ComputerName $ComputerName }
-    catch { throw "Unable to get BIOS information"}
-    try { $ModelInfo = Get-CimInstance -ClassName Win32_ComputerSystem -ComputerName $ComputerName}
-    catch { throw "Unable to get BIOS information"}
-    try { $OSInfo = Get-CimInstance -ClassName Win32_OperatingSystem -ComputerName $ComputerName}
-    catch { throw "Unable to get BIOS information"}
+    catch { throw "Unable to get BIOS information" }
+    try { $ModelInfo = Get-CimInstance -ClassName Win32_ComputerSystem -ComputerName $ComputerName }
+    catch { throw "Unable to get BIOS information" }
+    try { $OSInfo = Get-CimInstance -ClassName Win32_OperatingSystem -ComputerName $ComputerName }
+    catch { throw "Unable to get BIOS information" }
     switch ($BiosInfo.Manufacturer) {
         { ($_ -ieq "HP") -or ($_ -ieq "HPE") } {
             $bios_version = $biosinfo.ReleaseDate | Get-Date -Format "yyyy.MM.dd"
