@@ -35,7 +35,7 @@ function Get-BiosInfo ($ComputerName) {
     catch { throw "Unable to get information from remote PC: $ComputerName" }
 }
 function Get-WindowsNetworkAdapters ($ComputerName) {
-<#
+    <#
     This function pics one of the addresses that windows doesn't have marked as "Skip as source" to call the primary IP of the nic.
     For IPv4, we use the lowest numbered nic. For IPv6 we use the IP address with the shortest lifetime, as it's likely to be the one
     in use for new connections, though this may be a bad assumption. At any rate, the stakes are low. Anyone processing the output
@@ -75,4 +75,22 @@ function Get-WindowsNetworkAdapters ($ComputerName) {
         }
     }
     $Output
+}
+function Get-WinClusterInfo ($ComputerName) {
+    try {
+        $ClusterInfo = Get-CimInstance -ClassName MSCluster_Cluster -Namespace 'Root/MSCluster' -ComputerName $ComputerName -ErrorAction Stop
+        $ClusterNodes = Get-CimInstance -ClassName MSCluster_Node -Namespace 'Root/MSCluster' -ComputerName $ComputerName -ErrorAction Stop
+    }
+    catch {
+        throw "Unable to find cluster information from $ComputerName"
+    }
+    #$ClusterBaseInfo|Select-Object Name,Fqdn
+    [PSCustomObject]@{
+        Name    = $ClusterInfo.Name
+        FQDN    = $ClusterInfo.Fqdn
+        Members = $ClusterNodes.Name
+    }
+}
+
+
 }
