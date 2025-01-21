@@ -92,5 +92,132 @@ function Get-WinClusterInfo ($ComputerName) {
     }
 }
 
+<#
+    By default, the function will decline to create most pre-requisite objects, like sites. the -ForceCreatePrereqs argument
+    overrides this restriction, so use it wisely.
+#>
+function Add-WindowsTargetToNetbox {
+    [CmdletBinding()]
+    Param(
+        [Parameter(Mandatory = $true)][string]$ComputerName,
+        [Parameter(Mandatory = $true)][string]$SiteName,
+        [Parameter(Mandatory = $false)][string]$Role = "Server",
+        [Parameter(Mandatory = $false)][switch]$ForceCreatePrereqs,
+        [Parameter(Mandatory = $false)][ValidateSet('virtual', 'physical')][string]$ForceType,
+        [Parameter(Mandatory = $false)][string]$VMClusterName = 'Default Cluster'
+    )
+    #region Setup
+    # Normalize device name
+    $ComputerName = $ComputerName.ToUpper()
+    if ($ComputerName -like "*.*") {
+        $ComputerName = $ComputerName.Split('.')[0]
+        Write-Verbose "Converted FQDN to hostname $ComputerName"
+    }
+    Write-Verbose "Normalized object name: $ComputerName"
 
+    # Get hardware information over WMI
+    Write-Verbose "Acquiring information from WMI"
+    try { $BiosInfo = Get-BiosInfo $ComputerName }
+    catch { throw "Can't get serial information for $ComputerName. $($MyInvocation.MyCommand.Name) exiting abnormally" }
+
+    # Get Network Information
+    try { $NetworkInfo = Get-WindowsNetworkAdapters -ComputerName $ComputerName }
+    catch { throw "Can't get serial information for $ComputerName. $($MyInvocation.MyCommand.Name) exiting abnormally" }
+
+    # Get Clustering Information
+    try { $ClusterInfo = Get-WinClusterInfo -ComputerName $ComputerName }
+    catch { $ClusterInfo = $false }
+    
+    # Get or create Netbox objects for pre-requisites
+    Write-Verbose "Acquiring information from Netbox"
+
+    if (!($SiteObj = Get-NBSiteByName $Site)) {
+        if ($ForceCreatePrereqs) {
+            $SiteObj = New-NBSite -name $SiteName -status active
+        }
+        else { throw "Unable to find site object for $Site" }
+    }
+    if (!($OSObj = Get-NBDevicePlatformByName $BiosInfo.OperatingSystem)) {
+        if (!($MFRObj = Get-NBManufacturerByName 'Microsoft')) {
+            $MFRObj = New-NBManufacturer 'Microsoft'
+        }
+        $OSObj = New-NBDevicePlatform -name $BiosInfo.OperatingSystem -manufacturer $MFRObj.id
+    }
+    #endRegion Setup
+
+    # Determine whether we're documenting this as a VM or Device
+    # Obviously not a super robust detection method, it's just based on some things I have on hand I can detect against.
+    # Some of these vendor names cribbed from https://github.com/poettering/systemd/blob/main/src/basic/virt.c 
+    # Reading some of that code makes me very happy to not be a C developer. Absolute gibberish.
+    Switch ($BiosInfo.Manufacturer) {
+        { 'virtual' -eq $ForceType } { $isVM = $true }
+        { 'physical' -eq $ForceType } { $isVM = $false }
+        { $_ -in "QEMU", "KVM", "OpenStack", "Virtualbox", "VMWare, Inc." } {
+            $isVM = $true
+        }
+        { $_ -eq 'Microsoft Corporation' -and $BiosInfo.Model -eq 'Virtual Machine' } {
+            $isVM = $true
+        }
+        else { $isVM = $false }
+    }
+    ## If it's not a vm:
+    if (!($isVM)) {
+        # Get or create the device role we've been given
+        if (!($RoleObj = Get-NBDeviceRoleByName $Role)) {
+            if ($ForceCreatePrereqs) { $RoleObj = New-NBDeviceRole -name $Role -color red }
+            else { throw "Unable to find role object for $Role" }
+        }
+        else { throw "Can't find a role object, not allowed to create one." }
+        # Try to get an object that represents the model
+        if (!($DeviceTypeObj = Get-NBDeviceTypeByModel -DeviceType $BiosInfo.Model)) {
+            # If there's not one, and we're allowed we create one, and the manufacturer too, if needed.
+            if ($ForceCreatePrereqs) {
+                if (!($DeviceMFRObj = Get-NBManufacturerByName $BiosInfo.Manufacturer)) {
+                    $DeviceMFRObj = New-NBManufacturer $BiosInfo.Manufacturer
+                }
+                $DeviceTypeObj = New-NBDeviceType -manufacturer $DeviceMFRObj.id -model $BiosInfo.Model
+            }
+        }
+        if ($DeviceObj = Get-NBDeviceByName -name $ComputerName) {
+            Write-Verbose "Existing object for $ComputerName found"
+        }
+        else {
+            Write-Verbose "Code believes the device object did not exist - creating"
+            $DeviceObj = New-NBDevice -name $ComputerName -device_type $DeviceTypeObj.id -role $RoleObj.id -platform $OSObj.id -serial $BiosInfo.serial -site $SiteObj.id -status active
+            Write-Verbose $DeviceObj.id
+            Write-Verbose "Created device object $($DeviceObj.name)"
+        }
+        ## Handle networking
+        $interfaces=Get-NBDeviceInterfaceForDevice $DeviceObj.id
+        Foreach($NetworkConfig in $NetworkInfo) {
+            # Get or create the interface
+            if ($NetworkConfig.Name -notin $interfaces.Name) {
+                $IntObj=New-NBDeviceInterface -device $DeviceObj.id -name $NetworkConfig.Name -type virtual -description $NetworkConfig.Model -mac_address $NetworkConfig.MAC
+            }
+            else {$IntObj=$interfaces|Where-Object{$_.name -eq $NetworkConfig.name}}
+            # Get or create the IP address, if needed
+            foreach($IP in $NetworkConfig.IPv4CIDRStatic){
+                try {$IPObj = Get-NBIPAddressByName $IP}catch{$IPObj = New-NBIPAddress -address $IP -assigned_object_type dcim.interface -assigned_object_id $DeviceObj -status active}
+                if ($IPObj.assigned_object_type -ne 'dcim.interface' -or $IPObj.assigned_object_id -ne $IntObj.id) {
+                    Set-NBIPAddressParent -id $IPObj.id -InterFaceType dcim.interface -interface $IntObj.id
+                }
+            }
+        }
+        if ($ClusterInfo){Set-NBDevice -id $DeviceObj.id -key comments -value ($DeviceObj.comments + "`n`nMember of Windows cluster $($ClusterInfo.Name), $($ClusterInfo.FQDN)")}
+    }
+
+    ## It is a VM, proceed accordingly
+    else {
+        try {$VMClusterObj=Get-NBVMClusterByName $VMClusterName}
+        catch{
+            if($ForceCreatePrereqs) {
+                try {$VMClusterObj = Get-NBVMClusterTypeByName 'Generic'} catch {$VMClusterTypeObj=New-NBVMClusterType -name 'Generic' -description 'This cluster type was created to allow a VM to be created and assigned to a cluster automatically, please check over clusters assigned to this type and re-assign them to the proper cluster type.'}
+                $VMClusterObj = New-NBVMCluster -name $VMClusterName -type $VMClusterTypeObj.id -status active -description 'This cluster was created to allow a VM to be created and assigned to a cluster automatically, please check over this cluster and adjust the properties/type to match reality'
+            }
+            else {throw "Unable to get cluster '$($VMClusterName)', and -ForceCreatePrereqs not set"}
+        }
+        try {$VMobj=Get-NBVMByName $ComputerName} catch {$VMobj = New-NBVM -name $ComputerName -status active -site $SiteObj.id -cluster }
+        if ($ClusterInfo){Set-NBVM -id $VMobj.id -key comments -value ($VMobj.comments + "`n`nMember of Windows cluster $($ClusterInfo.Name), $($ClusterInfo.FQDN)")}
+        $interfaces = Get-NBVMInterfaceForVM $VMobj.id
+    }
 }
