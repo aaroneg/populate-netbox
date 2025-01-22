@@ -66,8 +66,6 @@ function Get-WindowsNetworkAdapters ($ComputerName) {
             IPv6CIDRStatic = $IPv6Statics
             Primary4       = (($IPv4Statics|Where-Object{$_ -like "$($IPv4Sources[0].IPAddress)*"}) -split ' ')[0]
             Primary6       = (($IPv6Statics|Where-Object{$_ -like "$($IPv6Sources[0].IPAddress)*"}) -split ' ')[0]
-            #StaticV4Present = $StaticV4Present
-            #StaticV6Present = $StaticV6Present
             DHCP4Enabled   = ($NicConfigInfo | Where-Object { $_.InterfaceIndex -eq $item.InterfaceIndex }).DHCPEnabled
             # The only time this is false is when IPv4 is not bound to the nic, which is so unlikely I doubt you'll see it, so it's disabled here.
             # IPBound = ($NicConfigInfo|Where-Object {$_.InterfaceIndex -eq $item.InterfaceIndex}).IPEnabled
