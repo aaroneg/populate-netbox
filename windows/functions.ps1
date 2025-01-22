@@ -216,7 +216,7 @@ function Add-WindowsTargetToNetbox {
             }
             else {throw "Unable to get cluster '$($VMClusterName)', and -ForceCreatePrereqs not set"}
         }
-        try {$VMobj=Get-NBVMByName $ComputerName} catch {$VMobj = New-NBVM -name $ComputerName -status active -site $SiteObj.id -cluster }
+        try {$VMobj=Get-NBVMByName $ComputerName} catch {$VMobj = New-NBVM -name $ComputerName -status active -site $SiteObj.id -cluster $VMClusterObj.id}
         if ($ClusterInfo){Set-NBVM -id $VMobj.id -key comments -value ($VMobj.comments + "`n`nMember of Windows cluster $($ClusterInfo.Name), $($ClusterInfo.FQDN)")}
         $interfaces = Get-NBVMInterfaceForVM $VMobj.id
         Foreach ($NetworkConfig in $NetworkInfo) {
