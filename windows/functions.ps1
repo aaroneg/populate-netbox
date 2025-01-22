@@ -50,7 +50,6 @@ function Get-WindowsNetworkAdapters ($ComputerName) {
         $nicPhysical = if ($item.Name -eq 'Microsoft Network Adapter Multiplexor Driver') { $false } else { $item.PhysicalAdapter }
         $IPs = Get-NetIPConfiguration -ComputerName $ComputerName
         [array]$IPv4Sources = (($IPs.IPv4Address | Where-Object { $_.SkipAsSource -eq $false -and $_.ifIndex -eq $item.InterfaceIndex }) | sort-object -Property IPAddress).IPAddress
-        #$IPv4Sources
         [array]$IPv6Sources = (($IPs.IPv6Address | Where-Object { $_.SkipAsSource -eq $false -and $_.ifIndex -eq $item.InterfaceIndex }) | sort-object -Property ValidLifetime).IPAddress
         #$IPv6Sources
         $IPv4Statics=@(($IPs | Where-Object { $_.InterfaceIndex -eq $item.InterfaceIndex }).IPv4Address | Where-Object { $_.PrefixOrigin -eq 'Manual' } | ForEach-Object { if ($_.IPAddress) { "$($_.IPAddress)/$($_.PrefixLength)" } } | Sort-Object -Property IPAddress)
@@ -65,8 +64,8 @@ function Get-WindowsNetworkAdapters ($ComputerName) {
             IPv6CIDRAuto   = @(($IPs | Where-Object { $_.InterfaceIndex -eq $item.InterfaceIndex }).IPv6Address | Where-Object { $_.PrefixOrigin -ne 'Manual' } | ForEach-Object { if ($_.IPAddress) { "$($_.IPAddress)/$($_.PrefixLength)" } } | Sort-Object -Property IPAddress)
             IPv4CIDRStatic = $IPv4Statics
             IPv6CIDRStatic = $IPv6Statics
-            Primary4       = $IPv4Statics|Where-Object{$_ -like "$($IPv4Sources[0].IPAddress)*"}
-            Primary6       = $IPv6Statics|Where-Object{$_ -like "$($IPv6Sources[0].IPAddress)*"}
+            Primary4       = (($IPv4Statics|Where-Object{$_ -like "$($IPv4Sources[0].IPAddress)*"}) -split ' ')[0]
+            Primary6       = (($IPv6Statics|Where-Object{$_ -like "$($IPv6Sources[0].IPAddress)*"}) -split ' ')[0]
             #StaticV4Present = $StaticV4Present
             #StaticV6Present = $StaticV6Present
             DHCP4Enabled   = ($NicConfigInfo | Where-Object { $_.InterfaceIndex -eq $item.InterfaceIndex }).DHCPEnabled
@@ -299,7 +298,7 @@ function Add-WindowsTargetToNetbox {
                     Write-Verbose "ID for '$($NetworkConfig.Primary4)': $ipID"
                     Set-NBVM -id $VMobj.id -key primary_ip4 ($ipID)|Out-Null
                 }
-                else {Write-Verbose "IPv4 length less than requirement for primary"}
+                else {Write-Verbose "IPv4 '$($NetworkInfo.Primary4)'length less than requirement for primary"}
             }
             if($NetworkConfig.IPv6CIDRStatic.count -eq 0 ){Write-Verbose "Skipping IPv6 Static Processing for interface '$($NetworkConfig.Name)' - no static IPv6 information found."}
             else{
