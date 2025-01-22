@@ -52,8 +52,8 @@ function Get-WindowsNetworkAdapters ($ComputerName) {
         [array]$IPv4Sources = (($IPs.IPv4Address | Where-Object { $_.SkipAsSource -eq $false -and $_.ifIndex -eq $item.InterfaceIndex }) | sort-object -Property IPAddress).IPAddress
         [array]$IPv6Sources = (($IPs.IPv6Address | Where-Object { $_.SkipAsSource -eq $false -and $_.ifIndex -eq $item.InterfaceIndex }) | sort-object -Property ValidLifetime).IPAddress
         #$IPv6Sources
-        $IPv4Statics=@(($IPs | Where-Object { $_.InterfaceIndex -eq $item.InterfaceIndex }).IPv4Address | Where-Object { $_.PrefixOrigin -eq 'Manual' } | ForEach-Object { if ($_.IPAddress) { "$($_.IPAddress)/$($_.PrefixLength)" } } | Sort-Object -Property IPAddress)
-        $IPv6Statics=@(($IPs | Where-Object { $_.InterfaceIndex -eq $item.InterfaceIndex }).IPv6Address | Where-Object { $_.PrefixOrigin -eq 'Manual' } | ForEach-Object { if ($_.IPAddress) { "$($_.IPAddress)/$($_.PrefixLength)" } } | Sort-Object -Property IPAddress)
+        $IPv4Statics = @(($IPs | Where-Object { $_.InterfaceIndex -eq $item.InterfaceIndex }).IPv4Address | Where-Object { $_.PrefixOrigin -eq 'Manual' } | ForEach-Object { if ($_.IPAddress) { "$($_.IPAddress)/$($_.PrefixLength)" } } | Sort-Object -Property IPAddress)
+        $IPv6Statics = @(($IPs | Where-Object { $_.InterfaceIndex -eq $item.InterfaceIndex }).IPv6Address | Where-Object { $_.PrefixOrigin -eq 'Manual' } | ForEach-Object { if ($_.IPAddress) { "$($_.IPAddress)/$($_.PrefixLength)" } } | Sort-Object -Property IPAddress)
         [PSCustomObject]@{
             Name           = $item.NetConnectionID
             Type           = $item.AdapterType
@@ -64,8 +64,8 @@ function Get-WindowsNetworkAdapters ($ComputerName) {
             IPv6CIDRAuto   = @(($IPs | Where-Object { $_.InterfaceIndex -eq $item.InterfaceIndex }).IPv6Address | Where-Object { $_.PrefixOrigin -ne 'Manual' } | ForEach-Object { if ($_.IPAddress) { "$($_.IPAddress)/$($_.PrefixLength)" } } | Sort-Object -Property IPAddress)
             IPv4CIDRStatic = $IPv4Statics
             IPv6CIDRStatic = $IPv6Statics
-            Primary4       = (($IPv4Statics|Where-Object{$_ -like "$($IPv4Sources[0].IPAddress)*"}) -split ' ')[0]
-            Primary6       = (($IPv6Statics|Where-Object{$_ -like "$($IPv6Sources[0].IPAddress)*"}) -split ' ')[0]
+            Primary4       = (($IPv4Statics | Where-Object { $_ -like "$($IPv4Sources[0].IPAddress)*" }) -split ' ')[0]
+            Primary6       = (($IPv6Statics | Where-Object { $_ -like "$($IPv6Sources[0].IPAddress)*" }) -split ' ')[0]
             DHCP4Enabled   = ($NicConfigInfo | Where-Object { $_.InterfaceIndex -eq $item.InterfaceIndex }).DHCPEnabled
             # The only time this is false is when IPv4 is not bound to the nic, which is so unlikely I doubt you'll see it, so it's disabled here.
             # IPBound = ($NicConfigInfo|Where-Object {$_.InterfaceIndex -eq $item.InterfaceIndex}).IPEnabled
@@ -148,15 +148,15 @@ function Add-WindowsTargetToNetbox {
     # Get or create the device role we've been given
     Write-Verbose "Acquiring Device role $($Role)"
     try {
-        $RoleObj=Get-NBDeviceRoleByName $Role
-        if($null -eq $RoleObj){throw}
+        $RoleObj = Get-NBDeviceRoleByName $Role
+        if ($null -eq $RoleObj) { throw }
     }
     catch {
-        if($ForceCreatePrereqs){
+        if ($ForceCreatePrereqs) {
             Write-Verbose "Creating VM role $($Role)"
             $RoleObj = New-NBDeviceRole -name $Role -color red
         }
-        else{throw "Can't find a role object, not allowed to create one."}
+        else { throw "Can't find a role object, not allowed to create one." }
     }
     if (!($RoleObj = Get-NBDeviceRoleByName $Role)) {
         
@@ -208,122 +208,138 @@ function Add-WindowsTargetToNetbox {
             Write-Verbose "Created device object $($DeviceObj.name)"
         }
         ## Handle networking
-        $interfaces=Get-NBDeviceInterfaceForDevice $DeviceObj.id
-        Foreach($NetworkConfig in $NetworkInfo) {
+        $interfaces = Get-NBDeviceInterfaceForDevice $DeviceObj.id
+        Foreach ($NetworkConfig in $NetworkInfo) {
             # Get or create the interface
             if ($NetworkConfig.Name -notin $interfaces.Name) {
-                $IntObj=New-NBDeviceInterface -device $DeviceObj.id -name $NetworkConfig.Name -type virtual -description $NetworkConfig.Model -mac_address $NetworkConfig.MAC
+                $IntObj = New-NBDeviceInterface -device $DeviceObj.id -name $NetworkConfig.Name -type virtual -description $NetworkConfig.Model -mac_address $NetworkConfig.MAC
             }
-            else {$IntObj=$interfaces|Where-Object{$_.name -eq $NetworkConfig.name}}
+            else { $IntObj = $interfaces | Where-Object { $_.name -eq $NetworkConfig.name } }
             # Get or create the IP address, if needed
-            foreach($IP in $NetworkConfig.IPv4CIDRStatic){
-                try {$IPObj = Get-NBIPAddressByName $IP}catch{$IPObj = New-NBIPAddress -address $IP -assigned_object_type dcim.interface -assigned_object_id $DeviceObj.id -status active}
+            foreach ($IP in $NetworkConfig.IPv4CIDRStatic) {
+                try { $IPObj = Get-NBIPAddressByName $IP }catch { $IPObj = New-NBIPAddress -address $IP -assigned_object_type dcim.interface -assigned_object_id $DeviceObj.id -status active }
                 if ($IPObj.assigned_object_type -ne 'dcim.interface' -or $IPObj.assigned_object_id -ne $IntObj.id) {
-                    Set-NBIPAddressParent -id $IPObj.id -InterFaceType dcim.interface -interface $IntObj.id
+                    Set-NBIPAddressParent -id $IPObj.id -InterFaceType dcim.interface -interface $IntObj.id | Out-Null
                 }
             }
         }
-        if ($ClusterInfo){Set-NBDevice -id $DeviceObj.id -key comments -value ($DeviceObj.comments + "`n`nMember of Windows cluster $($ClusterInfo.Name), $($ClusterInfo.FQDN)")}
+        if ($ClusterInfo) { Set-NBDevice -id $DeviceObj.id -key comments -value ($DeviceObj.comments + "`n`nMember of Windows cluster $($ClusterInfo.Name), $($ClusterInfo.FQDN)") | Out-Null }
     } # End Physical Device
 
     ## It is a VM, proceed accordingly
     else {
         Write-Verbose "Treating as virtual machine"
         try {
-            $VMClusterObj=Get-NBVMClusterByName $VMClusterName
-            if ($null -eq $VMClusterObj){throw}
+            $VMClusterObj = Get-NBVMClusterByName $VMClusterName
+            if ($null -eq $VMClusterObj) { throw }
         }
-        catch{
-            if($ForceCreatePrereqs) {
+        catch {
+            if ($ForceCreatePrereqs) {
                 Write-Verbose "`tCluster did not exist, processing pre-reqs as requested."
                 try {
                     $VMClusterObj = Get-NBVMClusterTypeByName 'Generic'
-                    if ($null -eq $VMClusterObj){throw}
+                    if ($null -eq $VMClusterObj) { throw }
                 } 
                 catch {
                     Write-Verbose "`t`tCreating 'Generic' VM cluster type"
-                    $VMClusterTypeObj=New-NBVMClusterType -name 'Generic' -description 'This cluster type was created to allow a VM to be created and assigned to a cluster automatically, please check over clusters assigned to this type and re-assign them to the proper cluster type.'
+                    $VMClusterTypeObj = New-NBVMClusterType -name 'Generic' -description 'This cluster type was created to allow a VM to be created and assigned to a cluster automatically, please check over clusters assigned to this type and re-assign them to the proper cluster type.'
                     Write-Verbose "`t`tCluster type 'Generic' ID: $($VMClusterTypeObj.id)"
                 }
                 Write-Verbose "`tCreating VM cluster '$($VMClusterName)' with type 'Generic'"
                 $VMClusterObj = New-NBVMCluster -name $VMClusterName -type $VMClusterTypeObj.id -status active -description 'This cluster was created to allow a VM to be created and assigned to a cluster automatically, please check over this cluster and adjust the properties/type to match reality'
             }
-            else {throw "Unable to get cluster '$($VMClusterName)', and -ForceCreatePrereqs not set"}
+            else { throw "Unable to get cluster '$($VMClusterName)', and -ForceCreatePrereqs not set" }
         }
         Write-Verbose "VM Cluster ID: $($VMClusterObj.id)"
         try {
-            $VMobj=Get-NBVMByName $ComputerName
-            if($null -eq $VMobj){throw}
+            $VMobj = Get-NBVMByName $ComputerName
+            if ($null -eq $VMobj) { throw }
         }
         catch {
             Write-Verbose "Creating VM Object for $($ComputerName)"
             $VMobj = New-NBVM -name $ComputerName -status active -site $SiteObj.id -cluster $VMClusterObj.id -platform $OSObj.id -role $RoleObj.id
         }
         Write-Verbose "VM Object ID: $($VMobj.id)"
-        if ($ClusterInfo){Set-NBVM -id $VMobj.id -key comments -value ($VMobj.comments + "`n`nMember of Windows cluster $($ClusterInfo.Name), $($ClusterInfo.FQDN)")}
+        if ($ClusterInfo) {
+            try {
+                $ClusterServerRoleObj = Get-NBDeviceRoleByName 'Clustered Server'
+                if ($null -eq $ClusterServerRoleObj) { throw }
+            }
+            catch {
+                $ClusterServerRoleObj = New-NBDeviceRole -name 'Clustered Server' -color '007ba7'
+            }
+            Set-NBVM -id $VMobj.id -key role -value $ClusterServerRoleObj.id | Out-Null
+            if ($VMobj.comments -notlike '*Member of Windows cluster*') {
+                Set-NBVM -id $VMobj.id -key comments -value ($VMobj.comments + "`n`nMember of Windows cluster $($ClusterInfo.Name) ($($ClusterInfo.FQDN))") | Out-Null
+            }
+            
+        }
         $interfaces = Get-NBVMInterfaceForVM $VMobj.id
         Write-Verbose "`tInterface count: $($interfaces.count)"
         Write-Verbose "`tNetworkInfo count: $($NetworkInfo.count)"
         Foreach ($NetworkConfig in $NetworkInfo) {
             # Get or create the VM Interface
-            if ($NetworkConfig.Name -notin $interfaces.Name) {
+            if ($NetworkConfig.Name -notin $interfaces.Name -and $NetworkConfig.Model -ne 'Microsoft Failover Cluster Virtual Adapter') {
                 Write-Verbose "`tCreating interface '$($NetworkConfig.Name)'"
-                $IntObj=New-NBVMInterface -virtual_machine $VMobj.id -name $NetworkConfig.Name -enabled $true -description $NetworkConfig.Model -mac_address $NetworkConfig.MAC
+                $IntObj = New-NBVMInterface -virtual_machine $VMobj.id -name $NetworkConfig.Name -enabled $true -description $NetworkConfig.Model -mac_address $NetworkConfig.MAC
             }
             else {
-                $IntObj=Get-NBVMInterfaceForVM -id $VMobj.id | Where-Object {$_.name -eq $NetworkConfig.name}
+                $IntObj = Get-NBVMInterfaceForVM -id $VMobj.id | Where-Object { $_.name -eq $NetworkConfig.name }
             }
             Write-Verbose "VM Interface '$($NetworkConfig.name)' ID: $($IntObj.id)"
-            if($NetworkConfig.IPv4CIDRStatic.count -eq 0 ){Write-Verbose "Skipping IPv4 Static Processing for interface '$($NetworkConfig.Name)' - no static IPv4 information found."}
-            else{
+            if ($NetworkConfig.IPv4CIDRStatic.count -eq 0 ) { Write-Verbose "Skipping IPv4 Static Processing for interface '$($NetworkConfig.Name)' - no static IPv4 information found." }
+            else {
                 # Get or create the IP address, if needed
-                Foreach ($IP in $NetworkConfig.IPv4CIDRStatic){
+                Foreach ($IP in $NetworkConfig.IPv4CIDRStatic) {
                     Write-Verbose "Processing IP: '$IP'"
                     try {
                         $IPObj = Get-NBIPAddressByName $IP
-                        if($null -eq $IPObj){throw}
+                        if ($null -eq $IPObj) { throw }
                     }
-                    catch{
+                    catch {
                         $IPObj = New-NBIPAddress -address $IP -assigned_object_type virtualization.vminterface -assigned_object_id $IntObj.id -status active
                     }
                     if ($IPObj.assigned_object_type -ne 'virtualization.vminterface' -or $IPObj.assigned_object_id -ne $IntObj.id) {
-                        Set-NBIPAddressParent -id $IPObj.id -InterFaceType virtualization.vminterface -interface $IntObj.id
+                        Set-NBIPAddressParent -id $IPObj.id -InterFaceType virtualization.vminterface -interface $IntObj.id | Out-Null
                     }
                 }
-                if($NetworkInfo.Primary4.length -ge 10){
-                    Write-Verbose "Setting Primary IPv4 address to '$($NetworkConfig.Primary4)'"
-                    $ipID=(Get-NBIPAddressByName -name $NetworkConfig.Primary4).id
-                    Write-Verbose "ID for '$($NetworkConfig.Primary4)': $ipID"
-                    Set-NBVM -id $VMobj.id -key primary_ip4 ($ipID)|Out-Null
+                Write-Verbose $NetworkInfo.Primary4.length
+                if ($NetworkInfo.Primary4 -is [array]) { $TargetPrimaryIP = $NetworkInfo.Primary4[0] }
+                else { $TargetPrimaryIP = $NetworkInfo.Primary4 }
+                if ($NetworkInfo.Primary4.length -ge 10) {
+                    Write-Verbose "Setting Primary IPv4 address to '$($TargetPrimaryIP)'"
+                    $ipID = (Get-NBIPAddressByName -name $TargetPrimaryIP).id
+                    Write-Verbose "ID for '$($TargetPrimaryIP)': $ipID"
+                    Set-NBVM -id $VMobj.id -key primary_ip4 ($ipID) | Out-Null
                 }
-                else {Write-Verbose "IPv4 '$($NetworkInfo.Primary4)'length less than requirement for primary"}
+                else { Write-Verbose "IPv4 '$($NetworkInfo.Primary4)'length less than requirement for primary" }
             }
-            if($NetworkConfig.IPv6CIDRStatic.count -eq 0 ){Write-Verbose "Skipping IPv6 Static Processing for interface '$($NetworkConfig.Name)' - no static IPv6 information found."}
-            else{
-                Foreach ($IP in $NetworkConfig.IPv6CIDRStatic){
+            if ($NetworkConfig.IPv6CIDRStatic.count -eq 0 ) { Write-Verbose "Skipping IPv6 Static Processing for interface '$($NetworkConfig.Name)' - no static IPv6 information found." }
+            else {
+                Foreach ($IP in $NetworkConfig.IPv6CIDRStatic) {
                     Write-Verbose "Processing IP: '$IP'"
                     try {
                         $IPObj = Get-NBIPAddressByName $IP
-                        if($null -eq $IPObj){throw}
+                        if ($null -eq $IPObj) { throw }
                     }
-                    catch{
+                    catch {
                         $IPObj = New-NBIPAddress -address $IP -assigned_object_type virtualization.vminterface -assigned_object_id $IntObj.id -status active
                     }
                     if ($IPObj.assigned_object_type -ne 'virtualization.vminterface' -or $IPObj.assigned_object_id -ne $IntObj.id) {
-                        Set-NBIPAddressParent -id $IPObj.id -InterFaceType virtualization.vminterface -interface $IntObj.id
+                        Set-NBIPAddressParent -id $IPObj.id -InterFaceType virtualization.vminterface -interface $IntObj.id | Out-Null
                     }
                 }
-                if($NetworkInfo.Primary6.length -ge 10){
-                    Write-Verbose "Setting Primary IPv6 address to '$($NetworkConfig.Primary6)'"
-                    $ipID=(Get-NBIPAddressByName -name $NetworkConfig.Primary6).id
-                    Write-Verbose "ID for '$($NetworkConfig.Primary6)': $ipID"
-                    Set-NBVM -id $VMobj.id -key primary_ip6 ($ipID)|Out-Null
+                if ($NetworkInfo.Primary6 -is [array]) { $TargetPrimaryIP = $NetworkInfo.Primary6[0] }
+                else { $TargetPrimaryIP = $NetworkInfo.Primary6 }
+                if ($NetworkInfo.Primary6.length -ge 10) {
+                    Write-Verbose "Setting Primary IPv6 address to '$TargetPrimaryIP'"
+                    $ipID = (Get-NBIPAddressByName -name $TargetPrimaryIP).id
+                    Write-Verbose "ID for '$($TargetPrimaryIP)': $ipID"
+                    Set-NBVM -id $VMobj.id -key primary_ip6 ($ipID) | Out-Null
                 }
-                else {Write-Verbose "IPv6 '$($NetworkConfig.Primary6)' length is $($NetworkInfo.Primary6.length)"}
+                else { Write-Verbose "IPv6 '$($TargetPrimaryIP)' length is $($NetworkInfo.Primary6.length)" }
             }
 
         }
-
-        
     } # End VMs
 }
