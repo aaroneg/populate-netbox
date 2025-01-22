@@ -197,7 +197,7 @@ function Add-WindowsTargetToNetbox {
             else {$IntObj=$interfaces|Where-Object{$_.name -eq $NetworkConfig.name}}
             # Get or create the IP address, if needed
             foreach($IP in $NetworkConfig.IPv4CIDRStatic){
-                try {$IPObj = Get-NBIPAddressByName $IP}catch{$IPObj = New-NBIPAddress -address $IP -assigned_object_type dcim.interface -assigned_object_id $DeviceObj -status active}
+                try {$IPObj = Get-NBIPAddressByName $IP}catch{$IPObj = New-NBIPAddress -address $IP -assigned_object_type dcim.interface -assigned_object_id $DeviceObj.id -status active}
                 if ($IPObj.assigned_object_type -ne 'dcim.interface' -or $IPObj.assigned_object_id -ne $IntObj.id) {
                     Set-NBIPAddressParent -id $IPObj.id -InterFaceType dcim.interface -interface $IntObj.id
                 }
@@ -219,5 +219,19 @@ function Add-WindowsTargetToNetbox {
         try {$VMobj=Get-NBVMByName $ComputerName} catch {$VMobj = New-NBVM -name $ComputerName -status active -site $SiteObj.id -cluster }
         if ($ClusterInfo){Set-NBVM -id $VMobj.id -key comments -value ($VMobj.comments + "`n`nMember of Windows cluster $($ClusterInfo.Name), $($ClusterInfo.FQDN)")}
         $interfaces = Get-NBVMInterfaceForVM $VMobj.id
+        Foreach ($NetworkConfig in $NetworkInfo) {
+            # Get or create the VM Interface
+            if ($NetworkConfig.Name -notin $interfaces.Name) {
+                $IntObj=New-NBVMInterface -virtual_machine $VMobj.id -name $NetworkConfig.Name -enabled $true -description $NetworkConfig.Model -mac_address $NetworkConfig.MAC
+            }
+            # Get or create the IP address, if needed
+            Foreach ($IP in $NetworkConfig.IPv4CIDRStatic){
+                try {$IPObj = Get-NBIPAddressByName $IP}catch{$IPObj = New-NBIPAddress -address $IP -assigned_object_type virtualization.vminterface -assigned_object_id $VMobj.id -status active}
+                if ($IPObj.assigned_object_type -ne 'virtualization.vminterface' -or $IPObj.assigned_object_id -ne $IntObj.id) {
+                    Set-NBIPAddressParent -id $IPObj.id -InterFaceType dcim.interface -interface $IntObj.id
+                }
+            }
+
+        }
     }
 }
