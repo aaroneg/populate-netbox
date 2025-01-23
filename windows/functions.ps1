@@ -112,6 +112,9 @@ function Add-WindowsTargetToNetbox {
     }
     Write-Verbose "Normalized object name: $ComputerName"
 
+    #Verify that the connection to Netbox works:
+    try{Get-NBStatus|Out-Null}catch{throw "Unable to communicate with Netbox - have you set up the connection?"}
+
     # Get hardware information over WMI
     Write-Verbose "Acquiring information from WMI"
     try { $BiosInfo = Get-BiosInfo $ComputerName }
@@ -306,7 +309,7 @@ function Add-WindowsTargetToNetbox {
                 Write-Verbose $NetworkInfo.Primary4.length
                 if ($NetworkInfo.Primary4 -is [array]) { $TargetPrimaryIP = $NetworkInfo.Primary4[0] }
                 else { $TargetPrimaryIP = $NetworkInfo.Primary4 }
-                if ($NetworkInfo.Primary4.length -ge 10) {
+                if ($TargetPrimaryIP.length -ge 10) {
                     Write-Verbose "Setting Primary IPv4 address to '$($TargetPrimaryIP)'"
                     $ipID = (Get-NBIPAddressByName -name $TargetPrimaryIP).id
                     Write-Verbose "ID for '$($TargetPrimaryIP)': $ipID"
@@ -331,7 +334,7 @@ function Add-WindowsTargetToNetbox {
                 }
                 if ($NetworkInfo.Primary6 -is [array]) { $TargetPrimaryIP = $NetworkInfo.Primary6[0] }
                 else { $TargetPrimaryIP = $NetworkInfo.Primary6 }
-                if ($NetworkInfo.Primary6.length -ge 10) {
+                if ($TargetPrimaryIP.length -ge 10) {
                     Write-Verbose "Setting Primary IPv6 address to '$TargetPrimaryIP'"
                     $ipID = (Get-NBIPAddressByName -name $TargetPrimaryIP).id
                     Write-Verbose "ID for '$($TargetPrimaryIP)': $ipID"
