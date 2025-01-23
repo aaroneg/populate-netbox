@@ -306,7 +306,6 @@ function Add-WindowsTargetToNetbox {
                         Set-NBIPAddressParent -id $IPObj.id -InterFaceType virtualization.vminterface -interface $IntObj.id | Out-Null
                     }
                 }
-                Write-Verbose $NetworkInfo.Primary4.length
                 if ($NetworkInfo.Primary4 -is [array]) { $TargetPrimaryIP = $NetworkInfo.Primary4[0] }
                 else { $TargetPrimaryIP = $NetworkInfo.Primary4 }
                 if ($TargetPrimaryIP.length -ge 10) {
@@ -315,7 +314,7 @@ function Add-WindowsTargetToNetbox {
                     Write-Verbose "ID for '$($TargetPrimaryIP)': $ipID"
                     Set-NBVM -id $VMobj.id -key primary_ip4 ($ipID) | Out-Null
                 }
-                else { Write-Verbose "IPv4 '$($NetworkInfo.Primary4)'length less than requirement for primary" }
+                else { Write-Verbose "IPv4 '$($NetworkInfo.Primary4)'length less than requirement, this is probably a bug" }
             }
             if ($NetworkConfig.IPv6CIDRStatic.count -eq 0 ) { Write-Verbose "Skipping IPv6 Static Processing for interface '$($NetworkConfig.Name)' - no static IPv6 information found." }
             else {
@@ -340,7 +339,7 @@ function Add-WindowsTargetToNetbox {
                     Write-Verbose "ID for '$($TargetPrimaryIP)': $ipID"
                     Set-NBVM -id $VMobj.id -key primary_ip6 ($ipID) | Out-Null
                 }
-                else { Write-Verbose "IPv6 '$($TargetPrimaryIP)' length is $($NetworkInfo.Primary6.length)" }
+                else { Write-Verbose "IPv6 '$($TargetPrimaryIP)' length is $($NetworkInfo.Primary6.length), You have hit a bug." }
             }
 
         }
