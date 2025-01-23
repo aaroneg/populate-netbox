@@ -149,7 +149,7 @@ function Add-WindowsTargetToNetbox {
     }
     Write-Verbose "Platform '$($BiosInfo.OperatingSystem)' ID: $($OSObj.id)"
     # Get or create the device role we've been given
-    Write-Verbose "Acquiring Device role $($Role)"
+    Write-Verbose "Acquiring Device role '$($Role)'"
     try {
         $RoleObj = Get-NBDeviceRoleByName $Role
         if ($null -eq $RoleObj) { throw }
@@ -161,12 +161,7 @@ function Add-WindowsTargetToNetbox {
         }
         else { throw "Can't find a role object, not allowed to create one." }
     }
-    if (!($RoleObj = Get-NBDeviceRoleByName $Role)) {
-        
-        if ($ForceCreatePrereqs) {  }
-        else { throw "Unable to find role object for $Role" }
-    }
-    else {  }
+    Write-Verbose "Device role '$($Role)' ID: $($RoleObj.id)"
     #endRegion Setup
 
     # Determine whether we're documenting this as a VM or Device
@@ -264,6 +259,7 @@ function Add-WindowsTargetToNetbox {
         }
         Write-Verbose "VM Object ID: $($VMobj.id)"
         if ($ClusterInfo) {
+            Write-Warning "Diverting server role to 'Clustered Server'."
             try {
                 $ClusterServerRoleObj = Get-NBDeviceRoleByName 'Clustered Server'
                 if ($null -eq $ClusterServerRoleObj) { throw }
