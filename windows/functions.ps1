@@ -169,8 +169,6 @@ function Add-WindowsTargetToNetbox {
     # Some of these vendor names cribbed from https://github.com/poettering/systemd/blob/main/src/basic/virt.c 
     # Reading some of that code makes me very happy to not be a C developer. Absolute gibberish.
     Switch ($BiosInfo.Manufacturer) {
-        { 'virtual' -eq $ForceType } { $isVM = $true }
-        { 'physical' -eq $ForceType } { $isVM = $false }
         { $_ -in "QEMU", "KVM", "OpenStack", "Virtualbox", "VMWare, Inc." } {
             $isVM = $true
         }
@@ -179,6 +177,8 @@ function Add-WindowsTargetToNetbox {
         }
         else { $isVM = $false }
     }
+    if ($ForceType -eq 'physical'){$isVM=$false}
+    elseif ($ForceType -eq 'virtual'){$isVM=$true}
     ## If it's not a vm:
     if (!($isVM)) {
         Write-Verbose "Treating as physical device"
