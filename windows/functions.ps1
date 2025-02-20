@@ -1,11 +1,11 @@
 # This function just gets some basic information about a machine over WMI/CIM
 function Get-BiosInfo ($ComputerName) {
     ## Gather BIOS information
-    try { $BiosInfo = Get-CimInstance -ClassName Win32_BIOS -ComputerName $ComputerName }
+    try { $BiosInfo = Get-CimInstance -ClassName Win32_BIOS -ComputerName $ComputerName -Verbose:$false }
     catch { throw "Unable to get BIOS information" }
-    try { $ModelInfo = Get-CimInstance -ClassName Win32_ComputerSystem -ComputerName $ComputerName }
+    try { $ModelInfo = Get-CimInstance -ClassName Win32_ComputerSystem -ComputerName $ComputerName -Verbose:$false }
     catch { throw "Unable to get BIOS information" }
-    try { $OSInfo = Get-CimInstance -ClassName Win32_OperatingSystem -ComputerName $ComputerName }
+    try { $OSInfo = Get-CimInstance -ClassName Win32_OperatingSystem -ComputerName $ComputerName -Verbose:$false }
     catch { throw "Unable to get BIOS information" }
     switch ($BiosInfo.Manufacturer) {
         { ($_ -ieq "HP") -or ($_ -ieq "HPE") } {
@@ -42,8 +42,8 @@ function Get-WindowsNetworkAdapters ($ComputerName) {
     of this function shouldn't use anything except the list of static addresses for the NIC when documenting a machine.
 #>
     try {
-        [array]$NicInfo = (Get-CimInstance -ClassName Win32_NetworkAdapter -ComputerName $ComputerName -ErrorAction Stop | Where-Object { $_.AdapterType })
-        [array]$NicConfigInfo = (Get-CimInstance -ClassName Win32_NetworkAdapterConfiguration -ComputerName $ComputerName -ErrorAction Stop)
+        [array]$NicInfo = (Get-CimInstance -ClassName Win32_NetworkAdapter -ComputerName $ComputerName -ErrorAction Stop -Verbose:$false | Where-Object { $_.AdapterType })
+        [array]$NicConfigInfo = (Get-CimInstance -ClassName Win32_NetworkAdapterConfiguration -ComputerName $ComputerName -ErrorAction Stop -Verbose:$false)
     }
     catch { throw "Unable to get information from remote PC: $ComputerName" }
     $Output = Foreach ($item in $NicInfo) {
@@ -75,8 +75,8 @@ function Get-WindowsNetworkAdapters ($ComputerName) {
 }
 function Get-WinClusterInfo ($ComputerName) {
     try {
-        $ClusterInfo = Get-CimInstance -ClassName MSCluster_Cluster -Namespace 'Root/MSCluster' -ComputerName $ComputerName -ErrorAction Stop
-        $ClusterNodes = Get-CimInstance -ClassName MSCluster_Node -Namespace 'Root/MSCluster' -ComputerName $ComputerName -ErrorAction Stop
+        $ClusterInfo = Get-CimInstance -ClassName MSCluster_Cluster -Namespace 'Root/MSCluster' -ComputerName $ComputerName -ErrorAction Stop -Verbose:$false
+        $ClusterNodes = Get-CimInstance -ClassName MSCluster_Node -Namespace 'Root/MSCluster' -ComputerName $ComputerName -ErrorAction Stop -Verbose:$false
     }
     catch {
         throw "Unable to find cluster information from $ComputerName"
@@ -116,7 +116,7 @@ function Add-WindowsTargetToNetbox {
     try{Get-NBStatus|Out-Null}catch{throw "Unable to communicate with Netbox - have you set up the connection?"}
 
     # Get hardware information over WMI
-    Write-Verbose "Acquiring information from WMI"
+    Write-Verbose "BEGIN Acquiring information from WMI"
     try { $BiosInfo = Get-BiosInfo $ComputerName }
     catch { throw "Can't get serial information for $ComputerName. $($MyInvocation.MyCommand.Name) exiting abnormally" }
 
@@ -127,41 +127,43 @@ function Add-WindowsTargetToNetbox {
     # Get Clustering Information
     try { $ClusterInfo = Get-WinClusterInfo -ComputerName $ComputerName }
     catch { $ClusterInfo = $false }
-    
+    Write-Verbose "END Acquiring informetion from WMI"
+
     # Get or create Netbox objects for pre-requisites
-    Write-Verbose "Acquiring information from Netbox"
+    Write-Verbose "BEGIN Acquiring information from Netbox"
     if (!($SiteObj = Get-NBSiteByName $SiteName)) {
         if ($ForceCreatePrereqs) {
-            Write-Verbose "Creating Site object for $SiteName"
+            Write-Verbose "`tCreating Site object for $SiteName"
             $SiteObj = New-NBSite -name $SiteName -status active
         }
         else { throw "Unable to find site object for $SiteName" }
     }
-    Write-Verbose "Site ID: $($SiteObj.id)"
+    Write-Verbose "`tSite ID: $($SiteObj.id)"
     if (!($OSObj = Get-NBDevicePlatformByName $BiosInfo.OperatingSystem)) {
         if (!($MFRObj = Get-NBManufacturerByName 'Microsoft')) {
-            Write-Verbose "Creating 'Microsoft' manufacturer"
+            Write-Verbose "`tCreating 'Microsoft' manufacturer"
             $MFRObj = New-NBManufacturer 'Microsoft'
         }
-        Write-Verbose "Manufacturer ID: $($MFRObj.id)"
-        Write-Verbose "Creating device platform '$($BiosInfo.OperatingSystem)'"
+        Write-Verbose "`tManufacturer ID: $($MFRObj.id)"
+        Write-Verbose "`tCreating device platform '$($BiosInfo.OperatingSystem)'"
         $OSObj = New-NBDevicePlatform -name $BiosInfo.OperatingSystem -manufacturer $MFRObj.id
     }
-    Write-Verbose "Platform '$($BiosInfo.OperatingSystem)' ID: $($OSObj.id)"
+    Write-Verbose "`tPlatform '$($BiosInfo.OperatingSystem)' ID: $($OSObj.id)"
     # Get or create the device role we've been given
-    Write-Verbose "Acquiring Device role '$($Role)'"
+    Write-Verbose "`tAcquiring Device role '$($Role)'"
     try {
         $RoleObj = Get-NBDeviceRoleByName $Role
         if ($null -eq $RoleObj) { throw }
     }
     catch {
         if ($ForceCreatePrereqs) {
-            Write-Verbose "Creating VM role $($Role)"
+            Write-Verbose "`tCreating VM role $($Role)"
             $RoleObj = New-NBDeviceRole -name $Role -color red
         }
         else { throw "Can't find a role object, not allowed to create one." }
     }
-    Write-Verbose "Device role '$($Role)' ID: $($RoleObj.id)"
+    Write-Verbose "`tDevice role '$($Role)' ID: $($RoleObj.id)"
+    Write-Verbose "END Acquiring information from Netbox"
     #endRegion Setup
 
     # Determine whether we're documenting this as a VM or Device
@@ -226,58 +228,47 @@ function Add-WindowsTargetToNetbox {
 
     ## It is a VM, proceed accordingly
     else {
-        Write-Verbose "Treating as virtual machine"
-        try {
-            $VMClusterObj = Get-NBVMClusterByName $VMClusterName
-            if ($null -eq $VMClusterObj) { throw }
-        }
-        catch {
-            if ($ForceCreatePrereqs) {
-                Write-Verbose "`tCluster did not exist, processing pre-reqs as requested."
-                try {
-                    $VMClusterObj = Get-NBVMClusterTypeByName 'Generic'
-                    if ($null -eq $VMClusterObj) { throw }
-                } 
-                catch {
-                    Write-Verbose "`t`tCreating 'Generic' VM cluster type"
-                    $VMClusterTypeObj = New-NBVMClusterType -name 'Generic' -description 'This cluster type was created to allow a VM to be created and assigned to a cluster automatically, please check over clusters assigned to this type and re-assign them to the proper cluster type.'
-                    Write-Verbose "`t`tCluster type 'Generic' ID: $($VMClusterTypeObj.id)"
-                }
-                Write-Verbose "`tCreating VM cluster '$($VMClusterName)' with type 'Generic'"
-                $VMClusterObj = New-NBVMCluster -name $VMClusterName -type $VMClusterTypeObj.id -status active -description 'This cluster was created to allow a VM to be created and assigned to a cluster automatically, please check over this cluster and adjust the properties/type to match reality'
-            }
-            else { throw "Unable to get cluster '$($VMClusterName)', and -ForceCreatePrereqs not set" }
-        }
+        Write-Verbose "**Treating as virtual machine**"
+
+        Write-Verbose "Getting cluster object"
+        $VMClusterObj=_GetOrCreateVMCluster -VMClusterName $VMClusterName -ForceCreatePrereqs $ForceCreatePrereqs
         Write-Verbose "VM Cluster ID: $($VMClusterObj.id)"
-        try {
-            $VMobj = Get-NBVMByName $ComputerName
-            if ($null -eq $VMobj) { throw }
-        }
-        catch {
-            Write-Verbose "Creating VM Object for $($ComputerName)"
-            $VMobj = New-NBVM -name $ComputerName -status active -site $SiteObj.id -cluster $VMClusterObj.id -platform $OSObj.id -role $RoleObj.id
-        }
+
+        Write-Verbose "Getting VM object for $ComputerName"
+        $VMObj= _GetOrCreateVM -ComputerName $ComputerName -SiteObj $SiteObj -VMClusterObj $VMClusterObj -OSObj $OSObj -RoleObj $RoleObj
         Write-Verbose "VM Object ID: $($VMobj.id)"
+
+        Write-Verbose "BEGIN processing clustering"
         if ($ClusterInfo) {
-            Write-Warning "Diverting server role to 'Clustered Server'."
-            try {
-                $ClusterServerRoleObj = Get-NBDeviceRoleByName 'Clustered Server'
-                if ($null -eq $ClusterServerRoleObj) { throw }
-            }
-            catch {
-                $ClusterServerRoleObj = New-NBDeviceRole -name 'Clustered Server' -color '007ba7'
-            }
-            Set-NBVM -id $VMobj.id -key role -value $ClusterServerRoleObj.id | Out-Null
+            Write-Verbose "`tCluster detected, tagging server with 'Clustered Server'."
+
+            # Get a usable tag object
+            $ClusterServerTagObj=_GetOrCreateClusterTag
+
+            # Figure out whether there are already any tags to deal with as we'll have to construct a string due to the way the cmdlet works
+            if($VMObj.tags.length -gt 0) {$Taglist="$(($VMObj.tags).id -join','),$($ClusterServerTagObj.id)"}
+            else {$Taglist="$($ClusterServerTagObj.id)"}
+            # Save the tag list to the object
+            Set-NBVM -id $VMobj.id -key tags -value $Taglist | Out-Null
+
+            # If there's not already a comment about it being a part of a cluster, make one identifying the cluster name & FQDN
             if ($VMobj.comments -notlike '*Member of Windows cluster*') {
                 Set-NBVM -id $VMobj.id -key comments -value ($VMobj.comments + "`n`nMember of Windows cluster $($ClusterInfo.Name) ($($ClusterInfo.FQDN))") | Out-Null
             }
-            
         }
+        else {
+            Write-Verbose "`tNo Windows failover cluster detected."
+        }
+        Write-Verbose "END processing clustering"
+
+        Write-Verbose "BEGIN Interface processing"
+        # Pull the interface list from Netbox
         $interfaces = Get-NBVMInterfaceForVM $VMobj.id
         Write-Verbose "`tInterface count: $($interfaces.count)"
         Write-Verbose "`tNetworkInfo count: $($NetworkInfo.count)"
+        # Process the network configs from Windows
         Foreach ($NetworkConfig in $NetworkInfo) {
-            # Get or create the VM Interface
+            # Get or create the VM Interface from Netbox. Ignore it if it's a Microsoft cluster virtual adapter
             if ($NetworkConfig.Name -notin $interfaces.Name -and $NetworkConfig.Model -ne 'Microsoft Failover Cluster Virtual Adapter') {
                 Write-Verbose "`tCreating interface '$($NetworkConfig.Name)'"
                 $IntObj = New-NBVMInterface -virtual_machine $VMobj.id -name $NetworkConfig.Name -enabled $true -description $NetworkConfig.Model -mac_address $NetworkConfig.MAC
@@ -285,19 +276,16 @@ function Add-WindowsTargetToNetbox {
             else {
                 $IntObj = Get-NBVMInterfaceForVM -id $VMobj.id | Where-Object { $_.name -eq $NetworkConfig.name }
             }
-            Write-Verbose "VM Interface '$($NetworkConfig.name)' ID: $($IntObj.id)"
-            if ($NetworkConfig.IPv4CIDRStatic.count -eq 0 ) { Write-Verbose "Skipping IPv4 Static Processing for interface '$($NetworkConfig.Name)' - no static IPv4 information found." }
+            Write-Verbose "`tVM Interface '$($NetworkConfig.name)' ID: $($IntObj.id)"
+            # If the interface has no static addresses assigned, ignore it
+            if ($NetworkConfig.IPv4CIDRStatic.count -eq 0 ) { 
+                Write-Verbose "`tSkipping IPv4 Static Processing for interface '$($NetworkConfig.Name)' - no static IPv4 information found." 
+            }
+            # Get-Or-Create the IP address object in Netbox, assign it to the virtual interface
             else {
                 # Get or create the IP address, if needed
                 Foreach ($IP in $NetworkConfig.IPv4CIDRStatic) {
-                    Write-Verbose "Processing IP: '$IP'"
-                    try {
-                        $IPObj = Get-NBIPAddressByName $IP
-                        if ($null -eq $IPObj) { throw }
-                    }
-                    catch {
-                        $IPObj = New-NBIPAddress -address $IP -assigned_object_type virtualization.vminterface -assigned_object_id $IntObj.id -status active
-                    }
+                    $IPObj=_GetOrCreateIP -IP $IP
                     if ($IPObj.assigned_object_type -ne 'virtualization.vminterface' -or $IPObj.assigned_object_id -ne $IntObj.id) {
                         Set-NBIPAddressParent -id $IPObj.id -InterFaceType virtualization.vminterface -interface $IntObj.id | Out-Null
                     }
@@ -305,17 +293,17 @@ function Add-WindowsTargetToNetbox {
                 if ($NetworkInfo.Primary4 -is [array]) { $TargetPrimaryIP = $NetworkInfo.Primary4[0] }
                 else { $TargetPrimaryIP = $NetworkInfo.Primary4 }
                 if ($TargetPrimaryIP.length -ge 10) {
-                    Write-Verbose "Setting Primary IPv4 address to '$($TargetPrimaryIP)'"
+                    Write-Verbose "`tSetting Primary IPv4 address to '$($TargetPrimaryIP)'"
                     $ipID = (Get-NBIPAddressByName -name $TargetPrimaryIP).id
-                    Write-Verbose "ID for '$($TargetPrimaryIP)': $ipID"
+                    Write-Verbose "`tID for '$($TargetPrimaryIP)': $ipID"
                     Set-NBVM -id $VMobj.id -key primary_ip4 ($ipID) | Out-Null
                 }
                 else { Write-Warning "IPv4 '$($NetworkInfo.Primary4)' length less than requirement, this is probably a bug" }
             }
-            if ($NetworkConfig.IPv6CIDRStatic.count -eq 0 ) { Write-Verbose "Skipping IPv6 Static Processing for interface '$($NetworkConfig.Name)' - no static IPv6 information found." }
+            if ($NetworkConfig.IPv6CIDRStatic.count -eq 0 ) { Write-Verbose "`tSkipping IPv6 Static Processing for interface '$($NetworkConfig.Name)' - no static IPv6 information found." }
             else {
                 Foreach ($IP in $NetworkConfig.IPv6CIDRStatic) {
-                    Write-Verbose "Processing IP: '$IP'"
+                    Write-Verbose "`tProcessing IP: '$IP'"
                     try {
                         $IPObj = Get-NBIPAddressByName $IP
                         if ($null -eq $IPObj) { throw }
@@ -330,14 +318,75 @@ function Add-WindowsTargetToNetbox {
                 if ($NetworkInfo.Primary6 -is [array]) { $TargetPrimaryIP = $NetworkInfo.Primary6[0] }
                 else { $TargetPrimaryIP = $NetworkInfo.Primary6 }
                 if ($TargetPrimaryIP.length -ge 10) {
-                    Write-Verbose "Setting Primary IPv6 address to '$TargetPrimaryIP'"
+                    Write-Verbose "`tSetting Primary IPv6 address to '$TargetPrimaryIP'"
                     $ipID = (Get-NBIPAddressByName -name $TargetPrimaryIP).id
-                    Write-Verbose "ID for '$($TargetPrimaryIP)': $ipID"
+                    Write-Verbose "`tID for '$($TargetPrimaryIP)': $ipID"
                     Set-NBVM -id $VMobj.id -key primary_ip6 ($ipID) | Out-Null
                 }
                 else { Write-Warning "IPv6 '$($TargetPrimaryIP)' length is $($NetworkInfo.Primary6.length), You have hit a bug." }
             }
 
         }
+        Write-Verbose "END Interface Processing"
     } # End VMs
+}
+
+function _GetOrCreateVMCluster($VMClusterName,$ForceCreatePrereqs) {
+    try {
+        $VMClusterObj = Get-NBVMClusterByName $VMClusterName
+        if ($null -eq $VMClusterObj) { throw }
+    }
+    catch {
+        if ($ForceCreatePrereqs) {
+            Write-Verbose "`tCluster did not exist, processing pre-reqs as requested."
+            try {
+                $VMClusterObj = Get-NBVMClusterTypeByName 'Generic'
+                if ($null -eq $VMClusterObj) { throw }
+            } 
+            catch {
+                Write-Verbose "`t`tCreating 'Generic' VM cluster type"
+                $VMClusterTypeObj = New-NBVMClusterType -name 'Generic' -description 'This cluster type was created to allow a VM to be created and assigned to a cluster automatically, please check over clusters assigned to this type and re-assign them to the proper cluster type.'
+                Write-Verbose "`t`tCluster type 'Generic' ID: $($VMClusterTypeObj.id)"
+            }
+            Write-Verbose "`tCreating VM cluster '$($VMClusterName)' with type 'Generic'"
+            $VMClusterObj = New-NBVMCluster -name $VMClusterName -type $VMClusterTypeObj.id -status active -description 'This cluster was created to allow a VM to be created and assigned to a cluster automatically, please check over this cluster and adjust the properties/type to match reality'
+        }
+        else { throw "Unable to get cluster '$($VMClusterName)', and -ForceCreatePrereqs not set" }
+    }
+    $VMClusterObj
+}
+
+function _GetOrCreateVM ($ComputerName,$SiteObj,$VMClusterObj,$OSObj,$RoleObj) {
+    try {
+        $VMobj = Get-NBVMByName $ComputerName
+        if ($null -eq $VMobj) { throw }
+    }
+    catch {
+        Write-Verbose "Creating VM Object for $($ComputerName)"
+        $VMobj = New-NBVM -name $ComputerName -status active -site $SiteObj.id -cluster $VMClusterObj.id -platform $OSObj.id -role $RoleObj.id
+    }
+    $VMobj
+}
+
+function _GetOrCreateClusterTag {
+    try {
+        $CLTag=Get-NBTags|Where-Object{$_.Name -eq 'Clustered Server'}
+        if ($null -eq $CLTag){throw}
+    }
+    catch{
+        $CLTag=New-NBTag -name 'Clustered Server' -color '007ba7' -description 'This item is a member of a Windows Failover Cluster' -object_types 'dcim.device','virtualization.virtualmachine'
+    }
+    $CLTag
+}
+
+function _GetOrCreateIP ($IP){
+    Write-Verbose "Processing IP: '$IP'"
+    try {
+        $IPObj = Get-NBIPAddressByName $IP
+        if ($null -eq $IPObj) { throw }
+    }
+    catch {
+        $IPObj = New-NBIPAddress -address $IP -assigned_object_type virtualization.vminterface -assigned_object_id $IntObj.id -status active
+    }
+    $IPObj
 }
