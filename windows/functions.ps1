@@ -183,30 +183,42 @@ function Add-WindowsTargetToNetbox {
     elseif ($ForceType -eq 'virtual'){$isVM=$true}
     ## If it's not a vm:
     if (!($isVM)) {
-        Write-Verbose "Treating as physical device"
-        Write-Verbose "Role ID: $($RoleObj.id)"
+        Write-Verbose "**Treating as physical device**"
+
         # Try to get an object that represents the model
         Write-Verbose "Acquiring device type object '$($BiosInfo.Model)'"
-        if (!($DeviceTypeObj = Get-NBDeviceTypeByModel -DeviceType $BiosInfo.Model)) {
-            # If there's not one, and we're allowed we create one, and the manufacturer too, if needed.
-            if ($ForceCreatePrereqs) {
-                Write-Verbose "Creating device type object for '$($BiosInfo.Model)'"
-                if (!($DeviceMFRObj = Get-NBManufacturerByName $BiosInfo.Manufacturer)) {
-                    $DeviceMFRObj = New-NBManufacturer $BiosInfo.Manufacturer
-                }
-                $DeviceTypeObj = New-NBDeviceType -manufacturer $DeviceMFRObj.id -model $BiosInfo.Model
+        $DeviceTypeObj=_GetDeviceType -BiosInfo $BiosInfo -ForceCreatePrereqs $ForceCreatePrereqs
+        Write-Verbose "`tDevice Type ID: $($DeviceTypeObj.id)"
+
+        Write-Verbose "Acquiring device object"
+        $DeviceObj=_GetDeviceObj -ComputerName $ComputerName -DeviceTypeObj $DeviceTypeObj -RoleObj $RoleObj -OSobj $OSObj -BiosInfo $BiosInfo -SiteObj $SiteObj
+        Write-Verbose "`tDevice object $($DeviceObj.name)"
+
+        Write-Verbose "BEGIN processing clustering"
+        if ($ClusterInfo) {
+            Write-Verbose "`tCluster detected, tagging server with 'Clustered Server'."
+
+            # Get a usable tag object
+            $ClusterServerTagObj=_GetOrCreateClusterTag
+
+            # Figure out whether there are already any tags to deal with as we'll have to construct a string due to the way the cmdlet works
+            if($DeviceObj.tags.length -gt 0) {$Taglist="$(($DeviceObj.tags).id -join','),$($ClusterServerTagObj.id)"}
+            else {$Taglist="$($ClusterServerTagObj.id)"}
+            # Save the tag list to the object
+            Set-NBDevice -id $DeviceObj.id -key tags -value $Taglist | Out-Null
+
+            # If there's not already a comment about it being a part of a cluster, make one identifying the cluster name & FQDN
+            if ($DeviceObj.comments -notlike '*Member of Windows cluster*') {
+                Set-NBDevice -id $DeviceObj.id -key comments -value ($DeviceObj.comments + "`n`nMember of Windows cluster $($ClusterInfo.Name) ($($ClusterInfo.FQDN))") | Out-Null
             }
         }
-        Write-Verbose "Device Type ID: $($DeviceTypeObj.id)"
-        if ($DeviceObj = Get-NBDeviceByName -name $ComputerName) {
-            Write-Verbose "Existing object for $ComputerName found"
-        }
         else {
-            Write-Verbose "Code believes the device object did not exist - creating"
-            $DeviceObj = New-NBDevice -name $ComputerName -device_type $DeviceTypeObj.id -role $RoleObj.id -platform $OSObj.id -serial $BiosInfo.serial -site $SiteObj.id -status active
-            Write-Verbose $DeviceObj.id
-            Write-Verbose "Created device object $($DeviceObj.name)"
+            Write-Verbose "`tNo Windows failover cluster detected."
         }
+        Write-Verbose "END processing clustering"
+
+        
+        
         ## Handle networking
         $interfaces = Get-NBDeviceInterfaceForDevice $DeviceObj.id
         Foreach ($NetworkConfig in $NetworkInfo) {
@@ -232,11 +244,11 @@ function Add-WindowsTargetToNetbox {
 
         Write-Verbose "Getting cluster object"
         $VMClusterObj=_GetOrCreateVMCluster -VMClusterName $VMClusterName -ForceCreatePrereqs $ForceCreatePrereqs
-        Write-Verbose "VM Cluster ID: $($VMClusterObj.id)"
+        Write-Verbose "`tVM Cluster ID: $($VMClusterObj.id)"
 
         Write-Verbose "Getting VM object for $ComputerName"
         $VMObj= _GetOrCreateVM -ComputerName $ComputerName -SiteObj $SiteObj -VMClusterObj $VMClusterObj -OSObj $OSObj -RoleObj $RoleObj
-        Write-Verbose "VM Object ID: $($VMobj.id)"
+        Write-Verbose "`tVM Object ID: $($VMobj.id)"
 
         Write-Verbose "BEGIN processing clustering"
         if ($ClusterInfo) {
@@ -380,7 +392,7 @@ function _GetOrCreateClusterTag {
 }
 
 function _GetOrCreateIP ($IP){
-    Write-Verbose "Processing IP: '$IP'"
+    Write-Verbose "`tProcessing IP: '$IP'"
     try {
         $IPObj = Get-NBIPAddressByName $IP
         if ($null -eq $IPObj) { throw }
@@ -389,4 +401,31 @@ function _GetOrCreateIP ($IP){
         $IPObj = New-NBIPAddress -address $IP -assigned_object_type virtualization.vminterface -assigned_object_id $IntObj.id -status active
     }
     $IPObj
+}
+
+function _GetDeviceType($BiosInfo,$ForceCreatePrereqs){
+    if (!($DeviceTypeObj = Get-NBDeviceTypeByModel -model $BiosInfo.Model)) {
+        # If there's not one, and we're allowed we create one, and the manufacturer too, if needed.
+        if ($ForceCreatePrereqs) {
+            Write-Verbose "`tCreating device type object for '$($BiosInfo.Model)'"
+            if (!($DeviceMFRObj = Get-NBManufacturerByName $BiosInfo.Manufacturer)) {
+                $DeviceMFRObj = New-NBManufacturer $BiosInfo.Manufacturer
+            }
+            $DeviceTypeObj = New-NBDeviceType -manufacturer $DeviceMFRObj.id -model $BiosInfo.Model
+        }
+    }
+    $DeviceTypeObj
+}
+
+function _GetDeviceObj($ComputerName,$DeviceTypeObj,$RoleObj,$OSobj,$BiosInfo,$SiteObj){
+    if ($DeviceObj = Get-NBDeviceByName -name $ComputerName) {
+        Write-Verbose "`tExisting Netbox object for $ComputerName found"
+    }
+    else {
+        Write-Verbose "`tCode believes the device object did not exist - creating"
+        $DeviceObj = New-NBDevice -name $ComputerName -device_type $DeviceTypeObj.id -role $RoleObj.id -platform $OSObj.id -serial $BiosInfo.serial -site $SiteObj.id -status active
+        Write-Verbose $DeviceObj.id
+
+    }
+    $DeviceObj
 }
