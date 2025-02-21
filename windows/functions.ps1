@@ -93,6 +93,25 @@ function Get-WinClusterInfo ($ComputerName) {
     By default, the function will decline to create most pre-requisite objects, like sites. the -ForceCreatePrereqs argument
     overrides this restriction, so use it wisely.
 #>
+
+<#
+    .SYNOPSIS
+        This command will attempt to document a windows-based remote target in Netbox.
+    .DESCRIPTION
+        Attempts to connect to a remote target using WMI/CIM and gathers important information about it, to be summarized in Netbox. Will create either a device or VM as appropriate. Assumes you're in the same domain or otherwise are running under an account that inherently can use WMI.
+    .PARAMETER ComputerName
+        The shortname or FQDN of the remote host
+    .PARAMETER SiteName
+        The name of the Netbox site where this object should be stored
+    .PARAMETER Role
+        If you have a role other than "Server" you'd like to assign, specify it here
+    .PARAMETER ForceCreatePrereqs
+        If you'd like the script to create objects that are prerequisites if they're missing, use this flag.
+    .PARAMETER ForceType 
+        You can force the script to treat a target as either a VM or physical device using this flag if the built in logic isn't making the right guess.
+    .PARAMETER VMClusterName
+        There's not really a way to know from the inside of a VM what the cluster name should be. If you want the cluster name to be something other than 'Default Cluster', specify it here.
+#>
 function Add-WindowsTargetToNetbox {
     [CmdletBinding()]
     Param(
