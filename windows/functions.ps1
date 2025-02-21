@@ -127,7 +127,7 @@ function Add-WindowsTargetToNetbox {
     # Get Clustering Information
     try { $ClusterInfo = Get-WinClusterInfo -ComputerName $ComputerName }
     catch { $ClusterInfo = $false }
-    Write-Verbose "END Acquiring informetion from WMI"
+    Write-Verbose "END Acquiring information from WMI"
 
     # Get or create Netbox objects for pre-requisites
     Write-Verbose "BEGIN Acquiring information from Netbox"
@@ -224,10 +224,19 @@ function Add-WindowsTargetToNetbox {
         Write-Verbose "`tNetworkInfo count: $($NetworkInfo.count)"
         # Process the network configs from Windows
         Foreach ($NetworkConfig in $NetworkInfo) {
-            # Get or create the VM Interface from Netbox. Ignore it if it's a Microsoft cluster virtual adapter
-            if ($NetworkConfig.Name -notin $interfaces.Name -and $NetworkConfig.Model -ne 'Microsoft Failover Cluster Virtual Adapter') {
+            # Get or create the VM Interface from Netbox.
+            if ($NetworkConfig.model -eq 'Microsoft Failover Cluster Virtual Adapter' -and 'Microsoft Failover Cluster Virtual Adapter' -notin $interfaces.Name ) {
+                Write-Verbose "`tCreating Failover cluster virtual adapter"
+                $IntObj = New-NBDeviceInterface -device $DeviceObj.id -name 'Microsoft Failover Cluster Virtual Adapter' -enabled $true -description $NetworkConfig.Model -mac_address $NetworkConfig.MAC -type virtual
+                continue
+            }
+            elseif($null -eq $NetworkConfig.name) { 
+                Write-Verbose "`tSkipping Interface with no name"
+                continue
+            }
+            elseif ($NetworkConfig.Name -notin $interfaces.Name -and $NetworkConfig.Model) {
                 Write-Verbose "`tCreating interface '$($NetworkConfig.Name)'"
-                $IntObj = New-NBDeviceInterface -device $DeviceObj.id -name $NetworkConfig.Name -enabled $true -description $NetworkConfig.Model -mac_address $NetworkConfig.MAC
+                $IntObj = New-NBDeviceInterface -device $DeviceObj.id -name $NetworkConfig.Name -enabled $true -description $NetworkConfig.Model -mac_address $NetworkConfig.MAC -type other
             }
             else {
                 $IntObj = Get-NBDeviceInterfaceForDevice -id $DeviceObj.id | Where-Object { $_.name -eq $NetworkConfig.name }
@@ -243,30 +252,31 @@ function Add-WindowsTargetToNetbox {
                 Foreach ($IP in $NetworkConfig.IPv4CIDRStatic) {
                     $IPObj=_GetOrCreateIP -IP $IP -itemType 'dcim.interface'
                     if ($IPObj.assigned_object_type -ne 'dcim.interface' -or $IPObj.assigned_object_id -ne $IntObj.id) {
+                        Write-Verbose "`tCorrecting interface assignment for ip $(IPobj.ID)"
                         Set-NBIPAddressParent -id $IPObj.id -InterFaceType dcim.interface -interface $IntObj.id | Out-Null
                     }
                 }
-                if ($NetworkInfo.Primary4 -is [array]) { $TargetPrimaryIP = $NetworkInfo.Primary4[0] }
-                else { $TargetPrimaryIP = $NetworkInfo.Primary4 }
+                if ($NetworkConfig.Primary4 -is [array]) { $TargetPrimaryIP = $NetworkConfig.Primary4[0] }
+                else { $TargetPrimaryIP = $NetworkConfig.Primary4 }
                 if ($TargetPrimaryIP.length -ge 10) {
                     Write-Verbose "`tSetting Primary IPv4 address to '$($TargetPrimaryIP)'"
                     $ipID = (Get-NBIPAddressByName -name $TargetPrimaryIP).id
-                    Write-Verbose "`tID for '$($TargetPrimaryIP)': $ipID"
+                    Write-Verbose "`tID for primary IP target '$($TargetPrimaryIP)': $ipID"
                     Set-NBDevice -id $DeviceObj.id -key primary_ip4 ($ipID) | Out-Null
                 }
-                else { Write-Warning "IPv4 '$($NetworkInfo.Primary4)' length less than requirement, this is probably a bug" }
+                else { Write-Warning "Target Primary IPv4 '$TargetPrimaryIP', $($TargetPrimaryIP.Gettype()) length less than requirement, this is probably a bug" }
             }
             if ($NetworkConfig.IPv6CIDRStatic.count -eq 0 ) { Write-Verbose "`tSkipping IPv6 Static Processing for interface '$($NetworkConfig.Name)' - no static IPv6 information found." }
             else {
                 Foreach ($IP in $NetworkConfig.IPv6CIDRStatic) {
-                    Write-Verbose "`tProcessing IP: '$IP'"
                     $IPObj=_GetOrCreateIP -IP $IP -itemType 'dcim.interface'
                     if ($IPObj.assigned_object_type -ne 'dcim.interface' -or $IPObj.assigned_object_id -ne $IntObj.id) {
-                        Set-NBIPAddressParent -id $IPObj.id -InterFaceType virtualization.vminterface -interface $IntObj.id | Out-Null
+                        Write-Verbose "`tCorrecting interface assignment for ip $(IPobj.ID)"
+                        Set-NBIPAddressParent -id $IPObj.id -InterFaceType dcim.interface -interface $IntObj.id | Out-Null
                     }
                 }
-                if ($NetworkInfo.Primary6 -is [array]) { $TargetPrimaryIP = $NetworkInfo.Primary6[0] }
-                else { $TargetPrimaryIP = $NetworkInfo.Primary6 }
+                if ($NetworkConfig.Primary6 -is [array]) { $TargetPrimaryIP = $NetworkConfig.Primary6[0] }
+                else { $TargetPrimaryIP = $NetworkConfig.Primary6 }
                 if ($TargetPrimaryIP.length -ge 10) {
                     Write-Verbose "`tSetting Primary IPv6 address to '$TargetPrimaryIP'"
                     $ipID = (Get-NBIPAddressByName -name $TargetPrimaryIP).id
@@ -322,8 +332,17 @@ function Add-WindowsTargetToNetbox {
         Write-Verbose "`tNetworkInfo count: $($NetworkInfo.count)"
         # Process the network configs from Windows
         Foreach ($NetworkConfig in $NetworkInfo) {
-            # Get or create the VM Interface from Netbox. Ignore it if it's a Microsoft cluster virtual adapter
-            if ($NetworkConfig.Name -notin $interfaces.Name -and $NetworkConfig.Model -ne 'Microsoft Failover Cluster Virtual Adapter') {
+            # Get or create the VM Interface from Netbox.
+            if ($NetworkConfig.model -eq 'Microsoft Failover Cluster Virtual Adapter' -and 'Microsoft Failover Cluster Virtual Adapter' -notin $interfaces.Name ) {
+                Write-Verbose "`tCreating Failover cluster virtual adapter"
+                $IntObj = New-NBVMInterface -virtual_machine $VMObj.id -name 'Microsoft Failover Cluster Virtual Adapter' -enabled $true -description $NetworkConfig.Model -mac_address $NetworkConfig.MAC
+                continue
+            }
+            elseif($null -eq $NetworkConfig.name) { 
+                Write-Verbose "`tSkipping Interface with no name"
+                continue
+            }
+            elseif ($NetworkConfig.Name -notin $interfaces.Name -and $NetworkConfig.Model) {
                 Write-Verbose "`tCreating interface '$($NetworkConfig.Name)'"
                 $IntObj = New-NBVMInterface -virtual_machine $VMobj.id -name $NetworkConfig.Name -enabled $true -description $NetworkConfig.Model -mac_address $NetworkConfig.MAC
             }
@@ -344,15 +363,15 @@ function Add-WindowsTargetToNetbox {
                         Set-NBIPAddressParent -id $IPObj.id -InterFaceType virtualization.vminterface -interface $IntObj.id | Out-Null
                     }
                 }
-                if ($NetworkInfo.Primary4 -is [array]) { $TargetPrimaryIP = $NetworkInfo.Primary4[0] }
-                else { $TargetPrimaryIP = $NetworkInfo.Primary4 }
+                if ($NetworkConfig.Primary4 -is [array]) { $NetworkConfig = $NetworkInfo.Primary4[0] }
+                else { $TargetPrimaryIP = $NetworkConfig.Primary4 }
                 if ($TargetPrimaryIP.length -ge 10) {
                     Write-Verbose "`tSetting Primary IPv4 address to '$($TargetPrimaryIP)'"
                     $ipID = (Get-NBIPAddressByName -name $TargetPrimaryIP).id
                     Write-Verbose "`tID for '$($TargetPrimaryIP)': $ipID"
                     Set-NBVM -id $VMobj.id -key primary_ip4 ($ipID) | Out-Null
                 }
-                else { Write-Warning "IPv4 '$($NetworkInfo.Primary4)' length less than requirement, this is probably a bug" }
+                else { Write-Warning "IPv4 '$TargetPrimaryIP' length less than requirement, this is probably a bug" }
             }
             if ($NetworkConfig.IPv6CIDRStatic.count -eq 0 ) { Write-Verbose "`tSkipping IPv6 Static Processing for interface '$($NetworkConfig.Name)' - no static IPv6 information found." }
             else {
@@ -428,7 +447,7 @@ function _GetOrCreateClusterTag {
 }
 
 function _GetOrCreateIP ($IP,$itemType){
-    Write-Verbose "`tProcessing IP: '$IP'"
+    Write-Verbose "`tGet-Or-CreateIP IP: '$IP'"
     try {
         $IPObj = Get-NBIPAddressByName $IP
         if ($null -eq $IPObj) { throw }
