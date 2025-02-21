@@ -117,3 +117,4 @@ Process {
 } #Process
 
 } #Get-WMIBMCIPAddress
+Get-WMIBMCIPAddress -ComputerName $env:COMPUTERNAME

@@ -307,6 +307,25 @@ function Add-WindowsTargetToNetbox {
 
         }
         Write-Verbose "END Interface Processing"
+        Write-Verbose "BEGIN OOB Processing"
+            $OOBInfo=Invoke-Command -ComputerName $ComputerName -FilePath $PSScriptRoot\Get-WMIBMCIPAddress.ps1
+            $OOBPrefixLength=((([ipaddress]$oobinfo.BMCSubnetMask).GetAddressBytes()|% {[Convert]::ToString($_,2)}) -join '').TrimEnd('0').Length
+            if ('oob' -notin $interfaces.name){
+                $oobInterface=New-NBDeviceInterface -device $DeviceObj.id -name 'oob' -type 1000base-t -mac_address $OOBInfo.BMCMACAddress -mgmt_only $true -description 'Out-Of-Band Card'
+            }
+            else {
+                $oobInterface=$interfaces|Where-Object {$_.name -eq 'oob'}
+            }
+            try {
+                $oobIP=Get-NBIPAddressByName -name "$($OOBInfo.BMCIPAddress)/$OOBPrefixLength"
+                if ($oobIP.length -eq 0) {throw}
+            }
+            catch {
+                $oobIP=New-NBIPAddress -address "$($OOBInfo.BMCIPAddress)/$OOBPrefixLength" -status active -assigned_object_type dcim.interface -description "OOB" -assigned_object_id $oobInterface.id
+            }
+            Set-NBDevice -id $DeviceObj.id -key oob_ip -value $oobIP.id
+        Write-Verbose "BEGIN OOB Processing"
+
     } # End Physical Device
 
     ## It is a VM, proceed accordingly
